@@ -1,16 +1,16 @@
 // server.js - Main Express Application Entry Point
 
-require('dotenv').config();
+require('dotenv').config({ path: require('path').join(__dirname, '.env') });
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
-const { testConnection } = require('./config/db');
+const connectDB = require('./config/db');
 const { errorHandler, notFound } = require('./middleware/errorHandler');
 
 const app = express();
 
-// ─── Database Connection Test ──────────────────────────────────────────────────
-testConnection();
+// ─── Database Connection ───────────────────────────────────────────────────────
+connectDB();
 
 // ─── Middleware ────────────────────────────────────────────────────────────────
 // Stripe webhook needs raw body - must come BEFORE express.json()

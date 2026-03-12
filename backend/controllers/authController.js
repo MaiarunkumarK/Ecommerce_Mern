@@ -2,8 +2,8 @@
 
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const { pool } = require('../config/db');
 const { validationResult } = require('express-validator');
+const User = require('../models/User');
 
 // ─── Generate JWT Token ────────────────────────────────────────────────────────
 const generateToken = (userId) => {
@@ -24,8 +24,8 @@ const register = async (req, res) => {
 
   try {
     // Check if email already registered
-    const [existing] = await pool.query('SELECT id FROM users WHERE email = ?', [email]);
-    if (existing.length) {
+    const existing = await User.findOne({ email });
+    if (existing) {
       return res.status(409).json({ success: false, message: 'Email already registered.' });
     }
 
@@ -33,18 +33,14 @@ const register = async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, 12);
 
     // Insert new user
-    const [result] = await pool.query(
-      'INSERT INTO users (name, email, password, phone) VALUES (?, ?, ?, ?)',
-      [name, email, hashedPassword, phone || null]
-    );
-
-    const token = generateToken(result.insertId);
+    const user = await User.create({ name, email, password: hashedPassword, phone: phone || null });
+    const token = generateToken(user._id);
 
     res.status(201).json({
       success: true,
       message: 'Registration successful.',
       token,
-      user: { id: result.insertId, name, email, role: 'user' },
+      user: { id: user._id, name: user.name, email: user.email, role: user.role },
     });
   } catch (error) {
     console.error('Register error:', error);
@@ -63,12 +59,10 @@ const login = async (req, res) => {
 
   try {
     // Find user by email
-    const [rows] = await pool.query('SELECT * FROM users WHERE email = ?', [email]);
-    if (!rows.length) {
+    const user = await User.findOne({ email });
+    if (!user) {
       return res.status(401).json({ success: false, message: 'Invalid email or password.' });
     }
-
-    const user = rows[0];
 
     if (!user.is_active) {
       return res.status(403).json({ success: false, message: 'Account has been deactivated.' });
@@ -80,13 +74,13 @@ const login = async (req, res) => {
       return res.status(401).json({ success: false, message: 'Invalid email or password.' });
     }
 
-    const token = generateToken(user.id);
+    const token = generateToken(user._id);
 
     res.json({
       success: true,
       message: 'Login successful.',
       token,
-      user: { id: user.id, name: user.name, email: user.email, role: user.role, avatar: user.avatar },
+      user: { id: user._id, name: user.name, email: user.email, role: user.role, avatar: user.avatar },
     });
   } catch (error) {
     console.error('Login error:', error);
@@ -97,30 +91,27 @@ const login = async (req, res) => {
 // ─── GET /api/auth/profile ─────────────────────────────────────────────────────
 const getProfile = async (req, res) => {
   try {
-    const [rows] = await pool.query(
-      'SELECT id, name, email, role, phone, address, avatar, created_at FROM users WHERE id = ?',
-      [req.user.id]
-    );
-    if (!rows.length) {
-      return res.status(404).json({ success: false, message: 'User not found.' });
-    }
-    res.json({ success: true, user: rows[0] });
+    const user = await User.findById(req.user._id).select('-password');
+    res.json({ success: true, user });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Server error.' });
+    res.status(500).json({ success: false, message: 'Failed to fetch profile.' });
   }
 };
 
 // ─── PUT /api/auth/profile ─────────────────────────────────────────────────────
 const updateProfile = async (req, res) => {
-  const { name, phone, address } = req.body;
   try {
-    await pool.query(
-      'UPDATE users SET name = ?, phone = ?, address = ? WHERE id = ?',
-      [name, phone, address, req.user.id]
-    );
-    res.json({ success: true, message: 'Profile updated successfully.' });
+    const { name, phone, address } = req.body;
+    const update = {};
+    if (name) update.name = name;
+    if (phone !== undefined) update.phone = phone;
+    if (address !== undefined) update.address = address;
+    if (req.file) update.avatar = `/uploads/${req.file.filename}`;
+
+    const user = await User.findByIdAndUpdate(req.user._id, update, { new: true }).select('-password');
+    res.json({ success: true, message: 'Profile updated.', user });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Server error.' });
+    res.status(500).json({ success: false, message: 'Failed to update profile.' });
   }
 };
 

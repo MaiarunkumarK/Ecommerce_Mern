@@ -1,7 +1,7 @@
 // middleware/auth.js - JWT Authentication & Role-based Authorization Middleware
 
 const jwt = require('jsonwebtoken');
-const { pool } = require('../config/db');
+const User = require('../models/User');
 
 // ─── Verify JWT Token ──────────────────────────────────────────────────────────
 const protect = async (req, res, next) => {
@@ -21,16 +21,13 @@ const protect = async (req, res, next) => {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
     // Fetch user from DB to ensure they still exist and are active
-    const [rows] = await pool.query(
-      'SELECT id, name, email, role, is_active FROM users WHERE id = ?',
-      [decoded.id]
-    );
+    const user = await User.findById(decoded.id).select('-password');
 
-    if (!rows.length || !rows[0].is_active) {
+    if (!user || !user.is_active) {
       return res.status(401).json({ success: false, message: 'User not found or deactivated.' });
     }
 
-    req.user = rows[0]; // Attach user to request object
+    req.user = user; // Attach user to request object
     next();
   } catch (error) {
     return res.status(401).json({ success: false, message: 'Invalid or expired token.' });

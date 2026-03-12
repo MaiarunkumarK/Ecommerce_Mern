@@ -1,28 +1,39 @@
 // controllers/adminController.js - Admin Dashboard Operations
 
-const { pool } = require('../config/db');
+const User = require('../models/User');
+const Product = require('../models/Product');
+const Order = require('../models/Order');
+const Payment = require('../models/Payment');
 
 // ─── GET /api/admin/stats ──────────────────────────────────────────────────────
 const getDashboardStats = async (req, res) => {
   try {
-    const [[{ totalUsers }]] = await pool.query('SELECT COUNT(*) AS totalUsers FROM users WHERE role = "user"');
-    const [[{ totalProducts }]] = await pool.query('SELECT COUNT(*) AS totalProducts FROM products WHERE is_active = 1');
-    const [[{ totalOrders }]] = await pool.query('SELECT COUNT(*) AS totalOrders FROM orders');
-    const [[{ totalRevenue }]] = await pool.query(
-      "SELECT COALESCE(SUM(amount), 0) AS totalRevenue FROM payments WHERE status = 'completed'"
-    );
+    const totalUsers = await User.countDocuments({ role: 'user' });
+    const totalProducts = await Product.countDocuments({ is_active: true });
+    const totalOrders = await Order.countDocuments();
+    const revenueResult = await Payment.aggregate([
+      { $match: { status: 'completed' } },
+      { $group: { _id: null, total: { $sum: '$amount' } } },
+    ]);
+    const totalRevenue = revenueResult[0]?.total || 0;
 
-    // Recent orders
-    const [recentOrders] = await pool.query(
-      `SELECT o.id, o.total_amount, o.status, o.created_at, u.name AS user_name
-       FROM orders o JOIN users u ON o.user_id = u.id
-       ORDER BY o.created_at DESC LIMIT 5`
-    );
+    const recentOrders = await Order.find()
+      .populate('user', 'name')
+      .sort({ createdAt: -1 })
+      .limit(5)
+      .lean();
+    const formattedOrders = recentOrders.map((o) => ({
+      id: o._id,
+      total_amount: o.total_amount,
+      status: o.status,
+      created_at: o.createdAt,
+      user_name: o.user?.name,
+    }));
 
     res.json({
       success: true,
-      stats: { totalUsers, totalProducts, totalOrders, totalRevenue: parseFloat(totalRevenue) },
-      recentOrders,
+      stats: { totalUsers, totalProducts, totalOrders, totalRevenue },
+      recentOrders: formattedOrders,
     });
   } catch (error) {
     console.error('getDashboardStats error:', error);
@@ -36,17 +47,19 @@ const getAllUsers = async (req, res) => {
     const { page = 1, limit = 20 } = req.query;
     const pageNum = Math.max(1, parseInt(page));
     const limitNum = Math.min(100, parseInt(limit));
-    const offset = (pageNum - 1) * limitNum;
 
-    const [users] = await pool.query(
-      `SELECT id, name, email, role, phone, is_active, created_at
-       FROM users ORDER BY created_at DESC LIMIT ? OFFSET ?`,
-      [limitNum, offset]
-    );
-
-    const [[{ total }]] = await pool.query('SELECT COUNT(*) AS total FROM users');
-
-    res.json({ success: true, users, pagination: { total, page: pageNum, limit: limitNum } });
+    const total = await User.countDocuments();
+    const users = await User.find()
+      .select('-password')
+      .sort({ createdAt: -1 })
+      .skip((pageNum - 1) * limitNum)
+      .limit(limitNum)
+      .lean();
+    res.json({
+      success: true,
+      users: users.map((u) => ({ ...u, id: u._id, created_at: u.createdAt })),
+      pagination: { total, page: pageNum, limit: limitNum },
+    });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Failed to fetch users.' });
   }
@@ -55,12 +68,11 @@ const getAllUsers = async (req, res) => {
 // ─── PUT /api/admin/users/:id/toggle ──────────────────────────────────────────
 const toggleUserStatus = async (req, res) => {
   try {
-    const [user] = await pool.query('SELECT is_active FROM users WHERE id = ?', [req.params.id]);
-    if (!user.length) {
-      return res.status(404).json({ success: false, message: 'User not found.' });
-    }
-    await pool.query('UPDATE users SET is_active = ? WHERE id = ?', [!user[0].is_active, req.params.id]);
-    res.json({ success: true, message: `User ${user[0].is_active ? 'deactivated' : 'activated'}.` });
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ success: false, message: 'User not found.' });
+    user.is_active = !user.is_active;
+    await user.save();
+    res.json({ success: true, message: `User ${user.is_active ? 'activated' : 'deactivated'}.` });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Failed to update user status.' });
   }

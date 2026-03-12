@@ -1,69 +1,30 @@
 // controllers/productController.js - Product CRUD Operations
 
-const { pool } = require('../config/db');
 const fs = require('fs');
 const path = require('path');
+const Product = require('../models/Product');
+const Category = require('../models/Category');
 
 // ─── GET /api/products ─────────────────────────────────────────────────────────
 const getProducts = async (req, res) => {
   try {
-    const { search, category, page = 1, limit = 12, sort = 'id', order = 'DESC' } = req.query;
-
+    const { search, category, page = 1, limit = 12, sort = 'createdAt', order = 'DESC' } = req.query;
     const pageNum = Math.max(1, parseInt(page));
     const limitNum = Math.min(50, Math.max(1, parseInt(limit)));
-    const offset = (pageNum - 1) * limitNum;
+    const filter = { is_active: true };
 
-    // Whitelist sort columns to prevent SQL injection
-    const sortColumns = ['id', 'name', 'price', 'stock', 'created_at'];
-    const safeSort = sortColumns.includes(sort) ? sort : 'id';
-    const safeOrder = order.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
-
-    let whereConditions = ['p.is_active = 1'];
-    const queryParams = [];
-
-    if (search) {
-      whereConditions.push('(p.name LIKE ? OR p.description LIKE ?)');
-      queryParams.push(`%${search}%`, `%${search}%`);
-    }
-
+    if (search) filter.$or = [{ name: { $regex: search, $options: 'i' } }, { description: { $regex: search, $options: 'i' } }];
     if (category) {
-      whereConditions.push('c.name = ?');
-      queryParams.push(category);
+      const cat = await Category.findOne({ name: category });
+      if (cat) filter.category = cat._id;
     }
 
-    const whereClause = whereConditions.length ? `WHERE ${whereConditions.join(' AND ')}` : '';
+    const sortObj = { [sort === 'id' ? '_id' : sort]: order.toUpperCase() === 'ASC' ? 1 : -1 };
+    const total = await Product.countDocuments(filter);
+    const products = await Product.find(filter).populate('category', 'name').sort(sortObj).skip((pageNum - 1) * limitNum).limit(limitNum).lean();
 
-    // Count total matching products for pagination
-    const countSql = `
-      SELECT COUNT(*) as total
-      FROM products p
-      LEFT JOIN categories c ON p.category_id = c.id
-      ${whereClause}
-    `;
-    const [countRows] = await pool.query(countSql, queryParams);
-    const total = countRows[0].total;
-
-    // Fetch paginated products
-    const productSql = `
-      SELECT p.*, c.name AS category_name
-      FROM products p
-      LEFT JOIN categories c ON p.category_id = c.id
-      ${whereClause}
-      ORDER BY p.${safeSort} ${safeOrder}
-      LIMIT ? OFFSET ?
-    `;
-    const [products] = await pool.query(productSql, [...queryParams, limitNum, offset]);
-
-    res.json({
-      success: true,
-      products,
-      pagination: {
-        total,
-        page: pageNum,
-        limit: limitNum,
-        pages: Math.ceil(total / limitNum),
-      },
-    });
+    const normalized = products.map((p) => ({ ...p, id: p._id, category_name: p.category?.name || null, category_id: p.category?._id || null }));
+    res.json({ success: true, products: normalized, pagination: { total, page: pageNum, limit: limitNum, pages: Math.ceil(total / limitNum) } });
   } catch (error) {
     console.error('getProducts error:', error);
     res.status(500).json({ success: false, message: 'Failed to fetch products.' });
@@ -73,17 +34,9 @@ const getProducts = async (req, res) => {
 // ─── GET /api/products/:id ─────────────────────────────────────────────────────
 const getProductById = async (req, res) => {
   try {
-    const [rows] = await pool.query(
-      `SELECT p.*, c.name AS category_name
-       FROM products p
-       LEFT JOIN categories c ON p.category_id = c.id
-       WHERE p.id = ? AND p.is_active = 1`,
-      [req.params.id]
-    );
-    if (!rows.length) {
-      return res.status(404).json({ success: false, message: 'Product not found.' });
-    }
-    res.json({ success: true, product: rows[0] });
+    const product = await Product.findOne({ _id: req.params.id, is_active: true }).populate('category', 'name').lean();
+    if (!product) return res.status(404).json({ success: false, message: 'Product not found.' });
+    res.json({ success: true, product: { ...product, id: product._id, category_name: product.category?.name || null } });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Failed to fetch product.' });
   }
@@ -93,20 +46,12 @@ const getProductById = async (req, res) => {
 const createProduct = async (req, res) => {
   try {
     const { name, description, price, stock, category_id } = req.body;
-    const image = req.file ? `/uploads/${req.file.filename}` : null;
+    const image = req.file ? `/uploads/${req.file.filename}` : req.body.image || null;
+    if (!name || !price) return res.status(400).json({ success: false, message: 'Name and price are required.' });
 
-    if (!name || !price) {
-      return res.status(400).json({ success: false, message: 'Name and price are required.' });
-    }
-
-    const [result] = await pool.query(
-      'INSERT INTO products (name, description, price, stock, image, category_id) VALUES (?, ?, ?, ?, ?, ?)',
-      [name, description, parseFloat(price), parseInt(stock) || 0, image, category_id || null]
-    );
-
-    const [product] = await pool.query('SELECT * FROM products WHERE id = ?', [result.insertId]);
-
-    res.status(201).json({ success: true, message: 'Product created.', product: product[0] });
+    const product = await Product.create({ name, description, price: parseFloat(price), stock: parseInt(stock) || 0, image, category: category_id || null });
+    await product.populate('category', 'name');
+    res.status(201).json({ success: true, message: 'Product created.', product });
   } catch (error) {
     console.error('createProduct error:', error);
     res.status(500).json({ success: false, message: 'Failed to create product.' });
@@ -117,39 +62,27 @@ const createProduct = async (req, res) => {
 const updateProduct = async (req, res) => {
   try {
     const { name, description, price, stock, category_id, is_active } = req.body;
+    const existing = await Product.findById(req.params.id);
+    if (!existing) return res.status(404).json({ success: false, message: 'Product not found.' });
 
-    const [existing] = await pool.query('SELECT * FROM products WHERE id = ?', [req.params.id]);
-    if (!existing.length) {
-      return res.status(404).json({ success: false, message: 'Product not found.' });
-    }
-
-    // If a new image is uploaded, delete the old one
-    let image = existing[0].image;
     if (req.file) {
-      if (image && image.startsWith('/uploads/')) {
-        const oldPath = path.join(__dirname, '..', image);
+      if (existing.image && existing.image.startsWith('/uploads/')) {
+        const oldPath = path.join(__dirname, '..', existing.image);
         if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
       }
-      image = `/uploads/${req.file.filename}`;
+      existing.image = `/uploads/${req.file.filename}`;
     }
 
-    await pool.query(
-      `UPDATE products SET name = ?, description = ?, price = ?, stock = ?,
-       image = ?, category_id = ?, is_active = ? WHERE id = ?`,
-      [
-        name || existing[0].name,
-        description !== undefined ? description : existing[0].description,
-        price !== undefined ? parseFloat(price) : existing[0].price,
-        stock !== undefined ? parseInt(stock) : existing[0].stock,
-        image,
-        category_id !== undefined ? category_id : existing[0].category_id,
-        is_active !== undefined ? is_active : existing[0].is_active,
-        req.params.id,
-      ]
-    );
+    if (name !== undefined) existing.name = name;
+    if (description !== undefined) existing.description = description;
+    if (price !== undefined) existing.price = parseFloat(price);
+    if (stock !== undefined) existing.stock = parseInt(stock);
+    if (category_id !== undefined) existing.category = category_id || null;
+    if (is_active !== undefined) existing.is_active = is_active;
 
-    const [updated] = await pool.query('SELECT * FROM products WHERE id = ?', [req.params.id]);
-    res.json({ success: true, message: 'Product updated.', product: updated[0] });
+    await existing.save();
+    await existing.populate('category', 'name');
+    res.json({ success: true, message: 'Product updated.', product: existing });
   } catch (error) {
     console.error('updateProduct error:', error);
     res.status(500).json({ success: false, message: 'Failed to update product.' });
@@ -159,14 +92,10 @@ const updateProduct = async (req, res) => {
 // ─── DELETE /api/products/:id (Admin) ────────────────────────────────────────
 const deleteProduct = async (req, res) => {
   try {
-    const [existing] = await pool.query('SELECT * FROM products WHERE id = ?', [req.params.id]);
-    if (!existing.length) {
-      return res.status(404).json({ success: false, message: 'Product not found.' });
-    }
-
-    // Soft delete - mark as inactive
-    await pool.query('UPDATE products SET is_active = 0 WHERE id = ?', [req.params.id]);
-
+    const product = await Product.findById(req.params.id);
+    if (!product) return res.status(404).json({ success: false, message: 'Product not found.' });
+    product.is_active = false;
+    await product.save();
     res.json({ success: true, message: 'Product deleted successfully.' });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Failed to delete product.' });
@@ -176,7 +105,7 @@ const deleteProduct = async (req, res) => {
 // ─── GET /api/categories ───────────────────────────────────────────────────────
 const getCategories = async (req, res) => {
   try {
-    const [categories] = await pool.query('SELECT * FROM categories ORDER BY name ASC');
+    const categories = await Category.find().sort({ name: 1 });
     res.json({ success: true, categories });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Failed to fetch categories.' });

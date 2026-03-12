@@ -1,112 +1,50 @@
 // controllers/orderController.js - Order Management
 
-const { pool } = require('../config/db');
+const Order = require('../models/Order');
+const Cart = require('../models/Cart');
+const Product = require('../models/Product');
 
 // ─── POST /api/orders ──────────────────────────────────────────────────────────
 const createOrder = async (req, res) => {
   const { shipping, notes } = req.body;
-
-  if (!shipping || !shipping.name || !shipping.address) {
+  if (!shipping || !shipping.name || !shipping.address)
     return res.status(400).json({ success: false, message: 'Shipping details are required.' });
-  }
 
-  const connection = await pool.getConnection();
   try {
-    await connection.beginTransaction();
+    const cartItems = await Cart.find({ user: req.user._id }).populate({ path: 'product', match: { is_active: true } });
+    const validItems = cartItems.filter((item) => item.product);
+    if (!validItems.length) return res.status(400).json({ success: false, message: 'Your cart is empty.' });
 
-    // Fetch cart items for this user
-    const [cartItems] = await connection.query(
-      `SELECT c.product_id, c.quantity, p.price, p.name, p.stock
-       FROM cart c JOIN products p ON c.product_id = p.id
-       WHERE c.user_id = ? AND p.is_active = 1`,
-      [req.user.id]
-    );
-
-    if (!cartItems.length) {
-      await connection.rollback();
-      return res.status(400).json({ success: false, message: 'Your cart is empty.' });
+    for (const item of validItems) {
+      if (item.quantity > item.product.stock)
+        return res.status(400).json({ success: false, message: `Insufficient stock for "${item.product.name}". Available: ${item.product.stock}` });
     }
 
-    // Verify stock for all items
-    for (const item of cartItems) {
-      if (item.quantity > item.stock) {
-        await connection.rollback();
-        return res.status(400).json({
-          success: false,
-          message: `Insufficient stock for "${item.name}". Available: ${item.stock}`,
-        });
-      }
-    }
+    const total = validItems.reduce((sum, item) => sum + item.quantity * item.product.price, 0);
+    const order = await Order.create({
+      user: req.user._id,
+      items: validItems.map((item) => ({ product: item.product._id, name: item.product.name, image: item.product.image, quantity: item.quantity, price: item.product.price })),
+      total_amount: parseFloat(total.toFixed(2)),
+      shipping_name: shipping.name, shipping_email: shipping.email, shipping_phone: shipping.phone,
+      shipping_address: shipping.address, shipping_city: shipping.city, shipping_state: shipping.state,
+      shipping_zip: shipping.zip, shipping_country: shipping.country, notes: notes || null,
+    });
 
-    // Calculate total
-    const total = cartItems.reduce((sum, item) => sum + item.quantity * parseFloat(item.price), 0);
+    for (const item of validItems) await Product.findByIdAndUpdate(item.product._id, { $inc: { stock: -item.quantity } });
+    await Cart.deleteMany({ user: req.user._id });
 
-    // Create order
-    const [orderResult] = await connection.query(
-      `INSERT INTO orders
-       (user_id, total_amount, shipping_name, shipping_email, shipping_phone,
-        shipping_address, shipping_city, shipping_state, shipping_zip, shipping_country, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        req.user.id,
-        total.toFixed(2),
-        shipping.name,
-        shipping.email,
-        shipping.phone,
-        shipping.address,
-        shipping.city,
-        shipping.state,
-        shipping.zip,
-        shipping.country,
-        notes || null,
-      ]
-    );
-
-    const orderId = orderResult.insertId;
-
-    // Insert order items and reduce stock
-    for (const item of cartItems) {
-      await connection.query(
-        'INSERT INTO order_items (order_id, product_id, quantity, price) VALUES (?, ?, ?, ?)',
-        [orderId, item.product_id, item.quantity, item.price]
-      );
-      // Reduce product stock
-      await connection.query('UPDATE products SET stock = stock - ? WHERE id = ?', [
-        item.quantity,
-        item.product_id,
-      ]);
-    }
-
-    // Clear user's cart
-    await connection.query('DELETE FROM cart WHERE user_id = ?', [req.user.id]);
-
-    await connection.commit();
-
-    res.status(201).json({ success: true, message: 'Order placed successfully.', orderId });
+    res.status(201).json({ success: true, message: 'Order placed successfully.', orderId: order._id });
   } catch (error) {
-    await connection.rollback();
     console.error('createOrder error:', error);
     res.status(500).json({ success: false, message: 'Failed to place order.' });
-  } finally {
-    connection.release();
   }
 };
 
 // ─── GET /api/orders (User's own orders) ──────────────────────────────────────
 const getMyOrders = async (req, res) => {
   try {
-    const [orders] = await pool.query(
-      `SELECT o.*, 
-              COUNT(oi.id) AS item_count
-       FROM orders o
-       LEFT JOIN order_items oi ON o.id = oi.order_id
-       WHERE o.user_id = ?
-       GROUP BY o.id
-       ORDER BY o.created_at DESC`,
-      [req.user.id]
-    );
-
-    res.json({ success: true, orders });
+    const orders = await Order.find({ user: req.user._id }).sort({ createdAt: -1 }).lean();
+    res.json({ success: true, orders: orders.map((o) => ({ ...o, id: o._id, item_count: o.items.length })) });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Failed to fetch orders.' });
   }
@@ -115,26 +53,11 @@ const getMyOrders = async (req, res) => {
 // ─── GET /api/orders/:id ───────────────────────────────────────────────────────
 const getOrderById = async (req, res) => {
   try {
-    const [orders] = await pool.query(
-      'SELECT * FROM orders WHERE id = ? AND user_id = ?',
-      [req.params.id, req.user.id]
-    );
-
-    if (!orders.length) {
-      return res.status(404).json({ success: false, message: 'Order not found.' });
-    }
-
-    const [items] = await pool.query(
-      `SELECT oi.*, p.name, p.image
-       FROM order_items oi
-       JOIN products p ON oi.product_id = p.id
-       WHERE oi.order_id = ?`,
-      [req.params.id]
-    );
-
-    const [payment] = await pool.query('SELECT * FROM payments WHERE order_id = ?', [req.params.id]);
-
-    res.json({ success: true, order: { ...orders[0], items, payment: payment[0] || null } });
+    const order = await Order.findOne({ _id: req.params.id, user: req.user._id }).lean();
+    if (!order) return res.status(404).json({ success: false, message: 'Order not found.' });
+    const Payment = require('../models/Payment');
+    const payment = await Payment.findOne({ order: req.params.id }).lean();
+    res.json({ success: true, order: { ...order, id: order._id, payment: payment || null } });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Failed to fetch order.' });
   }
@@ -146,31 +69,14 @@ const getAllOrders = async (req, res) => {
     const { status, page = 1, limit = 20 } = req.query;
     const pageNum = Math.max(1, parseInt(page));
     const limitNum = Math.min(100, parseInt(limit));
-    const offset = (pageNum - 1) * limitNum;
+    const filter = {};
+    if (status) filter.status = status;
 
-    let where = '';
-    const params = [];
-    if (status) {
-      where = 'WHERE o.status = ?';
-      params.push(status);
-    }
+    const total = await Order.countDocuments(filter);
+    const orders = await Order.find(filter).populate('user', 'name email').sort({ createdAt: -1 }).skip((pageNum - 1) * limitNum).limit(limitNum).lean();
+    const result = orders.map((o) => ({ ...o, id: o._id, user_name: o.user?.name, user_email: o.user?.email, item_count: o.items.length }));
 
-    const [orders] = await pool.query(
-      `SELECT o.*, u.name AS user_name, u.email AS user_email,
-              COUNT(oi.id) AS item_count
-       FROM orders o
-       JOIN users u ON o.user_id = u.id
-       LEFT JOIN order_items oi ON o.id = oi.order_id
-       ${where}
-       GROUP BY o.id
-       ORDER BY o.created_at DESC
-       LIMIT ? OFFSET ?`,
-      [...params, limitNum, offset]
-    );
-
-    const [[{ total }]] = await pool.query(`SELECT COUNT(*) AS total FROM orders o ${where}`, params);
-
-    res.json({ success: true, orders, pagination: { total, page: pageNum, limit: limitNum, pages: Math.ceil(total / limitNum) } });
+    res.json({ success: true, orders: result, pagination: { total, page: pageNum, limit: limitNum, pages: Math.ceil(total / limitNum) } });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Failed to fetch orders.' });
   }
@@ -180,13 +86,9 @@ const getAllOrders = async (req, res) => {
 const updateOrderStatus = async (req, res) => {
   const { status } = req.body;
   const validStatuses = ['pending', 'processing', 'shipped', 'delivered', 'cancelled'];
-
-  if (!validStatuses.includes(status)) {
-    return res.status(400).json({ success: false, message: 'Invalid status.' });
-  }
-
+  if (!validStatuses.includes(status)) return res.status(400).json({ success: false, message: 'Invalid status.' });
   try {
-    await pool.query('UPDATE orders SET status = ? WHERE id = ?', [status, req.params.id]);
+    await Order.findByIdAndUpdate(req.params.id, { status });
     res.json({ success: true, message: 'Order status updated.' });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Failed to update status.' });
