@@ -41,6 +41,11 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date().toISOString() });
 });
 
+// Root route
+app.get("/", (req, res) => {
+  res.send("🚀 Ecommerce API is running on Render");
+});
+
 // ─── Error Handling ────────────────────────────────────────────────────────────
 app.use(notFound);
 app.use(errorHandler);
