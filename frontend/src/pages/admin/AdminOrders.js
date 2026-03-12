@@ -28,7 +28,7 @@ const AdminOrders = () => {
   const handleStatusChange = async (orderId, status) => {
     try {
       await adminService.updateOrderStatus(orderId, status);
-      setOrders(orders.map((o) => o.id === orderId ? { ...o, status } : o));
+      setOrders(orders.map((o) => String(o._id) === String(orderId) ? { ...o, status } : o));
       toast.success('Order status updated');
     } catch { toast.error('Failed to update status'); }
   };
@@ -56,8 +56,8 @@ const AdminOrders = () => {
             </thead>
             <tbody className="divide-y">
               {orders.map((order) => (
-                <tr key={order.id} className="hover:bg-gray-50">
-                  <td className="py-3 font-medium">#{order.id}</td>
+                <tr key={order._id} className="hover:bg-gray-50">
+                  <td className="py-3 font-medium">#{String(order._id).slice(-8).toUpperCase()}</td>
                   <td className="py-3">{order.user_name}</td>
                   <td className="py-3 text-gray-400 text-xs">{order.user_email}</td>
                   <td className="py-3">{order.item_count}</td>
@@ -65,11 +65,11 @@ const AdminOrders = () => {
                   <td className="py-3">
                     <span className={`badge ${statusColors[order.status] || ''}`}>{order.status}</span>
                   </td>
-                  <td className="py-3 text-gray-400">{new Date(order.created_at).toLocaleDateString()}</td>
+                  <td className="py-3 text-gray-400">{new Date(order.createdAt).toLocaleDateString()}</td>
                   <td className="py-3">
                     <select
                       value={order.status}
-                      onChange={(e) => handleStatusChange(order.id, e.target.value)}
+                      onChange={(e) => handleStatusChange(order._id, e.target.value)}
                       className="border border-gray-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
                     >
                       {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}

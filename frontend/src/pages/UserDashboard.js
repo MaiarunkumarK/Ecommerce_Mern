@@ -73,9 +73,9 @@ const UserDashboard = () => {
                 {orders.map((order) => {
                   const s = statusConfig[order.status] || statusConfig.pending;
                   return (
-                    <tr key={order.id} className="hover:bg-gray-50">
-                      <td className="py-3 font-medium">#{order.id}</td>
-                      <td className="py-3 text-gray-500">{new Date(order.created_at).toLocaleDateString()}</td>
+                    <tr key={order._id} className="hover:bg-gray-50">
+                      <td className="py-3 font-medium">#{String(order._id).slice(-8).toUpperCase()}</td>
+                      <td className="py-3 text-gray-500">{new Date(order.createdAt).toLocaleDateString()}</td>
                       <td className="py-3 text-gray-500">{order.item_count} item(s)</td>
                       <td className="py-3 font-semibold">${parseFloat(order.total_amount).toFixed(2)}</td>
                       <td className="py-3">
