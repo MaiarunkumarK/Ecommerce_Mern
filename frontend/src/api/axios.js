@@ -1,27 +1,23 @@
-// src/api/axios.js - Configured Axios Instance
-
-import axios from 'axios';
+import axios from "axios";
 
 const api = axios.create({
-  baseURL: process.env.REACT_APP_API_URL || 'https://ecommerce-mern-fm6z.onrender.com/api',
-  headers: { 'Content-Type': 'application/json' },
+  baseURL: "https://ecommerce-mern-fm6z.onrender.com/api",
+  headers: { "Content-Type": "application/json" },
 });
 
-// Attach JWT token to every request automatically
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token');
+  const token = localStorage.getItem("token");
   if (token) config.headers.Authorization = `Bearer ${token}`;
   return config;
 });
 
-// Handle 401 globally - redirect to login if token expires
 api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      localStorage.removeItem('token');
-      localStorage.removeItem('user');
-      window.location.href = '/login';
+      localStorage.removeItem("token");
+      localStorage.removeItem("user");
+      window.location.href = "/login";
     }
     return Promise.reject(error);
   }
