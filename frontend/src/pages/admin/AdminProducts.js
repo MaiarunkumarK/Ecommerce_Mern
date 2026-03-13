@@ -96,9 +96,16 @@ const AdminProducts = () => {
               {products.map((p) => (
                 <tr key={p.id} className="hover:bg-gray-50">
                   <td className="py-3">
-                    <img src={p.image || 'https://via.placeholder.com/40'} alt={p.name}
+                    <img
+                      src={
+                        p.image
+                          ? `https://ecommerce-mern-fm6z.onrender.com${p.image}`
+                          : 'https://via.placeholder.com/40'
+                      }
+                      alt={p.name}
                       className="w-10 h-10 rounded-lg object-cover border"
-                      onError={(e) => { e.target.src = 'https://via.placeholder.com/40'; }} />
+                      onError={(e) => { e.target.src = 'https://via.placeholder.com/40'; }}
+                    />
                   </td>
                   <td className="py-3 font-medium max-w-32 truncate">{p.name}</td>
                   <td className="py-3">${parseFloat(p.price).toFixed(2)}</td>
