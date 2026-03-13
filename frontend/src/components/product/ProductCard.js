@@ -31,11 +31,19 @@ const ProductCard = ({ product }) => {
       {/* Product Image */}
       <div className="relative overflow-hidden h-48 bg-gray-100">
         <img
-          src={product.image || 'https://via.placeholder.com/400x300?text=No+Image'}
-          alt={product.name}
-          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-          onError={(e) => { e.target.src = 'https://via.placeholder.com/400x300?text=No+Image'; }}
-        />
+  src={
+    product.image
+      ? product.image.startsWith("http")
+        ? product.image
+        : `https://ecommerce-mern-fm6z.onrender.com${product.image}`
+      : "https://via.placeholder.com/400x300?text=No+Image"
+  }
+  alt={product.name}
+  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+  onError={(e) => {
+    e.target.src = "https://via.placeholder.com/400x300?text=No+Image";
+  }}
+/>
         {product.stock === 0 && (
           <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
             <span className="text-white font-semibold">Out of Stock</span>
