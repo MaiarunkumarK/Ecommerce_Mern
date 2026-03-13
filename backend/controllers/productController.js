@@ -20,9 +20,18 @@ const getProducts = async (req, res) => {
 
     const sortObj = { [sort === 'id' ? '_id' : sort]: order.toUpperCase() === 'ASC' ? 1 : -1 };
     const total = await Product.countDocuments(filter);
-    const products = await Product.find(filter).populate('category', 'name').sort(sortObj).skip((pageNum - 1) * limitNum).limit(limitNum).lean();
+    const products = await Product.find(filter)
+      .sort(sortObj)
+      .skip((pageNum - 1) * limitNum)
+      .limit(limitNum)
+      .lean();
 
-    const normalized = products.map((p) => ({ ...p, id: p._id, category_name: p.category?.name || null, category_id: p.category?._id || null }));
+    const normalized = products.map((p) => ({
+        ...p,
+        id: p._id,
+        category_name: p.category || null,
+        category_id: null
+      }));
     res.json({ success: true, products: normalized, pagination: { total, page: pageNum, limit: limitNum, pages: Math.ceil(total / limitNum) } });
   } catch (error) {
     console.error('getProducts error:', error);
@@ -33,9 +42,19 @@ const getProducts = async (req, res) => {
 // ─── GET /api/products/:id ─────────────────────────────────────────────────────
 const getProductById = async (req, res) => {
   try {
-    const product = await Product.findOne({ _id: req.params.id, is_active: true }).populate('category', 'name').lean();
+    const product = await Product.findOne({
+          _id: req.params.id,
+          is_active: true
+        }).lean();
     if (!product) return res.status(404).json({ success: false, message: 'Product not found.' });
-    res.json({ success: true, product: { ...product, id: product._id, category_name: product.category?.name || null } });
+    res.json({
+        success: true,
+        product: {
+          ...product,
+          id: product._id,
+          category_name: product.category || null
+        }
+      });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Failed to fetch product.' });
   }
