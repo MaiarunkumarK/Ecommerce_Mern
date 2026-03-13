@@ -17,10 +17,15 @@ connectDB();
 const paymentRoutes = require('./routes/paymentRoutes');
 app.use('/api/payment/webhook', express.raw({ type: 'application/json' }));
 
-app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
-  credentials: true,
-}));
+app.use(
+  cors({
+    origin: [
+      "http://localhost:3000",
+      "https://reactecommercemern.netlify.app"
+    ],
+    credentials: true,
+  })
+);
 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
@@ -39,11 +44,6 @@ app.use('/api/admin', require('./routes/adminRoutes'));
 // Health check
 app.get('/api/health', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date().toISOString() });
-});
-
-// Root route
-app.get("/", (req, res) => {
-  res.send("🚀 Ecommerce API is running on Render");
 });
 
 // ─── Error Handling ────────────────────────────────────────────────────────────
