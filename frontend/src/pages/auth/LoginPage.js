@@ -68,7 +68,7 @@ const LoginPage = () => {
 
           <div className="mt-4 text-center text-sm text-gray-500">
             <span>Demo: </span>
-            <button onClick={() => setForm({ email: 'admin@ecommerce.com', password: 'Admin@123' })}
+            <button onClick={() => setForm({ email: 'admin@ecommerce.com', password: '123456' })}
               className="text-blue-600 hover:underline">Use Admin Account</button>
           </div>
 
