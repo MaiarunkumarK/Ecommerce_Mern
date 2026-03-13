@@ -15,8 +15,7 @@ const getProducts = async (req, res) => {
 
     if (search) filter.$or = [{ name: { $regex: search, $options: 'i' } }, { description: { $regex: search, $options: 'i' } }];
     if (category) {
-      const cat = await Category.findOne({ name: category });
-      if (cat) filter.category = cat._id;
+      filter.category = category;
     }
 
     const sortObj = { [sort === 'id' ? '_id' : sort]: order.toUpperCase() === 'ASC' ? 1 : -1 };
