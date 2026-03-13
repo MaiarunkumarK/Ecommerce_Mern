@@ -74,17 +74,18 @@ const ProductDetailPage = () => {
         {/* Product Image */}
         <div className="rounded-xl overflow-hidden border bg-gray-50 h-96">
           <img
-            src={
-                  product.image
-                    ? product.image.startsWith('http')
-                      ? product.image
-                      : `https://ecommerce-mern-fm6z.onrender.com${product.image}`
-                    : 'https://via.placeholder.com/600x400?text=No+Image'
-                }
-            alt={product.name}
-            className="w-full h-full object-cover"
-            onError={(e) => { e.target.src = 'https://via.placeholder.com/600x400?text=No+Image'; }}
-          />
+              src={
+                product.image && product.image.trim() !== ""
+                  ? product.image.startsWith("http")
+                    ? product.image
+                    : `https://ecommerce-mern-fm6z.onrender.com${product.image}`
+                  : "https://via.placeholder.com/400x300?text=No+Image"
+              }
+              alt={product.name}
+              onError={(e) => {
+                e.target.src = "https://via.placeholder.com/400x300?text=No+Image";
+              }}
+            />
         </div>
 
         {/* Product Details */}
