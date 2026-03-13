@@ -76,7 +76,9 @@ const ProductDetailPage = () => {
           <img
             src={
                   product.image
-                    ? `https://ecommerce-mern-fm6z.onrender.com${product.image}`
+                    ? product.image.startsWith('http')
+                      ? product.image
+                      : `https://ecommerce-mern-fm6z.onrender.com${product.image}`
                     : 'https://via.placeholder.com/600x400?text=No+Image'
                 }
             alt={product.name}
