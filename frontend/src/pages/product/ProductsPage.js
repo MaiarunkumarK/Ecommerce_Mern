@@ -38,11 +38,19 @@ const ProductsPage = () => {
   }, []);
 
   const updateParam = (key, value) => {
-    const params = Object.fromEntries(searchParams);
-    if (value) params[key] = value; else delete params[key];
-    params.page = '1'; // Reset to first page on filter change
-    setSearchParams(params);
-  };
+  const params = Object.fromEntries(searchParams);
+
+  if (value) params[key] = value;
+  else delete params[key];
+
+  // Reset page only when changing filters
+  if (key !== "page") {
+    params.page = "1";
+  }
+
+  setSearchParams(params);
+};
+
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
@@ -55,11 +63,12 @@ const ProductsPage = () => {
           <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
           <input
             type="text"
-            defaultValue={search}
-            onChange={(e) => updateParam('search', e.target.value)}
+            value={search}
+            onChange={(e) => updateParam("search", e.target.value)}
             className="input-field pl-10"
             placeholder="Search products..."
           />
+
         </div>
 
         {/* Category Filter */}
@@ -101,7 +110,8 @@ const ProductsPage = () => {
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-          {products.map((p) => <ProductCard key={p.id} product={p} />)}
+          {products.map((p) => <ProductCard key={p._id} product={p} />)}
+
         </div>
       )}
 
