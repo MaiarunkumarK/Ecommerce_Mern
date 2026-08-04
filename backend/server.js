@@ -46,10 +46,26 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date().toISOString() });
 });
 
-// ─── Error Handling ────────────────────────────────────────────────────────────
+// ======================
+// Serve React Frontend
+// ======================
+if (process.env.NODE_ENV === "production") {
+  const buildPath = path.join(__dirname, "../frontend/build");
+
+  app.use(express.static(buildPath));
+
+  app.get("*", (req, res) => {
+    res.sendFile(path.join(buildPath, "index.html"));
+  });
+} else {
+  app.get("/", (req, res) => {
+    res.send("API is running...");
+  });
+}
+
+// Error Handling
 app.use(notFound);
 app.use(errorHandler);
-
 // ─── Start Server ──────────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
