@@ -1,8 +1,10 @@
 import axios from "axios";
 
 const api = axios.create({
-  baseURL: "https://ecommerce-mern-fm6z.onrender.com/api",
-  headers: { "Content-Type": "application/json" },
+  baseURL: "https://ecommerce-mern-1-eomr.onrender.com/api",
+  headers: {
+    "Content-Type": "application/json",
+  },
 });
 
 api.interceptors.request.use((config) => {
